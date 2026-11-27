@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Review Applicant PDFs · Employment Agreement Updater</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand-mark" aria-hidden="true">PDF</div>
+    <div>
+      <p class="eyebrow">APPLICANT DOCUMENT GENERATION</p>
+      <h1>Review generated PDFs</h1>
+      <p class="subhead">Preview every completed agreement, then download PDFs individually or together.</p>
+    </div>
+    <div class="header-status">
+      <span class="status-dot"></span>
+      <span>{{ batch['applicant_count'] }} PDF{% if batch['applicant_count'] != 1 %}s{% endif %} ready</span>
+    </div>
+  </header>
+
+  <main class="page-shell review-shell">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="flash-stack" aria-live="polite">
+          {% for category, message in messages %}
+            <div class="flash {{ category }}">
+              <span class="flash-icon">{% if category == 'success' %}✓{% else %}!{% endif %}</span>
+              <span>{{ message }}</span>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    <section class="review-summary-card">
+      <div>
+        <p class="eyebrow">BATCH COMPLETE</p>
+        <h2>{{ batch['template_name'] }} · {{ batch['applicant_count'] }} applicant{% if batch['applicant_count'] != 1 %}s{% endif %}</h2>
+        <p>Other agreement details use the saved values for this template. Full name and passport number were replaced for each applicant.</p>
+        <span class="review-date">Created {{ batch['created_at'] }}</span>
+      </div>
+      <div class="review-summary-actions">
+        <a class="button button-quiet" href="{{ url_for('index') }}">Back to editor</a>
+      </div>
+    </section>
+
+    <div class="review-intro">
+      <div>
+        <h2>Completed agreements</h2>
+        <p>Each PDF was checked for a readable, complete set of pages. Expand a preview or open it in a new tab to inspect it before downloading.</p>
+      </div>
+      <span class="review-count">{{ batch['files']|length }} file{% if batch['files']|length != 1 %}s{% endif %}</span>
+    </div>
+
+    <section class="generated-documents" aria-label="Generated applicant agreements">
+      {% for item in batch['files'] %}
+        <article class="generated-document-card">
+          <div class="generated-document-heading">
+            <div class="generated-document-identity">
+              <span class="file-index">{{ "%03d"|format(loop.index) }}</span>
+              <div>
+                <h3>{{ item['employee_name'] }}</h3>
+                <p>Passport <code>{{ item['passport_number'] }}</code> <span class="identity-separator">·</span> {{ item['page_count'] }} pages</p>
+                <small>{{ item['filename'] }}</small>
+              </div>
+            </div>
+            <div class="generated-document-actions">
+              <a class="button button-quiet" href="{{ url_for('applicant_batch_visual_preview', batch_id=batch['id'], filename=item['filename']) }}" target="_blank" rel="noopener">Open visual preview ↗</a>
+            </div>
+          </div>
+          <details class="pdf-preview" {% if loop.first %}open{% endif %}>
+            <summary>Inline PDF preview · {{ item['page_count'] }} pages</summary>
+            <iframe
+              src="{{ url_for('applicant_batch_visual_preview', batch_id=batch['id'], filename=item['filename']) }}"
+              title="PDF preview for {{ item['employee_name'] }}"
+              loading="lazy"></iframe>
+          </details>
+          <div class="generated-download-actions">
+            <a class="button button-quiet" href="{{ url_for('applicant_batch_download', batch_id=batch['id'], filename=item['filename']) }}">Download this PDF</a>
+          </div>
+        </article>
+      {% endfor %}
+    </section>
+
+    <section class="review-download-footer">
+      <div>
+        <strong>Ready to download?</strong>
+        <p>Use an individual PDF above, or download the entire reviewed batch as one ZIP file.</p>
+      </div>
+      <a class="button button-dark" href="{{ url_for('applicant_batch_download_zip', batch_id=batch['id']) }}">Download batch ZIP</a>
+    </section>
+    <p class="review-legal-note">Generated agreements are drafts. Review names, passport numbers, terms, and all pages before signing or use.</p>
+  </main>
+</body>
+</html>

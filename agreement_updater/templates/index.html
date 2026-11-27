@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Employment Agreement Updater</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand-mark" aria-hidden="true">EA</div>
+    <div>
+      <p class="eyebrow">LOCAL DOCUMENT WORKSPACE</p>
+      <h1>Employment Agreement Updater</h1>
+      <p class="subhead">Edit a value once, update its repeated locations, and rebuild matching agreement PDFs.</p>
+    </div>
+    <div class="header-status">
+      <span class="status-dot"></span>
+      <span>5 source agreements loaded</span>
+    </div>
+  </header>
+
+  <main class="page-shell">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="flash-stack" aria-live="polite">
+          {% for category, message in messages %}
+            <div class="flash {{ category }}">
+              <span class="flash-icon">{% if category == 'success' %}✓{% else %}!{% endif %}</span>
+              <span>{{ message }}</span>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    <section class="notice-card legal-notice">
+      <div class="notice-icon">i</div>
+      <div>
+        <strong>Source PDFs are kept unchanged.</strong>
+        <p>This tool creates draft copies with your edits. The originals are never overwritten. Review every generated agreement before use; editing a signed or stamped agreement may affect its legal validity.</p>
+      </div>
+    </section>
+
+    <section class="applicant-batch-card" id="applicant-generator">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">MANUAL APPLICANT ENTRY · TYPE OR CSV</p>
+          <h2>Create agreements for applicants</h2>
+          <p>Use this section to type each applicant’s full name and passport number, or import them from CSV. This form does not upload passport scans or run OCR.</p>
+        </div>
+        <div class="section-badges">
+          <span class="intake-mode intake-manual">MANUAL / CSV</span>
+          <span class="bulk-badge">MAX 50</span>
+        </div>
+      </div>
+
+      <form id="applicant-batch-form" class="applicant-batch-form" action="{{ url_for('generate_applicant_batch') }}" method="post" enctype="multipart/form-data">
+        <label class="control-field template-choice">
+          <span>Agreement template for this batch</span>
+          <select name="template_id" required>
+            {% for doc in docs %}
+              <option value="{{ doc['id'] }}">{{ doc['name'] }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <div class="applicant-entry-heading">
+          <div>
+            <h3>Type applicant details manually</h3>
+            <p>Enter the name and passport number from the passport. Add rows for multiple applicants; use the CSV option below if preferred.</p>
+          </div>
+          <button id="add-applicant-row" class="button button-quiet" type="button">+ Add applicant</button>
+        </div>
+        <div id="applicant-rows" class="applicant-rows">
+          <div class="applicant-entry">
+            <label class="control-field">
+              <span>Applicant full name (type manually)</span>
+              <input name="manual_full_name" type="text" placeholder="Type the full name as shown on passport" autocomplete="off">
+            </label>
+            <label class="control-field">
+              <span>Passport number (type manually)</span>
+              <input name="manual_passport_number" type="text" placeholder="Type passport number" autocomplete="off">
+            </label>
+            <button class="remove-applicant-row" type="button" aria-label="Remove applicant row" title="Remove row">×</button>
+          </div>
+        </div>
+
+        <template id="applicant-row-template">
+          <div class="applicant-entry">
+            <label class="control-field">
+              <span>Applicant full name (type manually)</span>
+              <input name="manual_full_name" type="text" placeholder="Type the full name as shown on passport" autocomplete="off">
+            </label>
+            <label class="control-field">
+              <span>Passport number (type manually)</span>
+              <input name="manual_passport_number" type="text" placeholder="Type passport number" autocomplete="off">
+            </label>
+            <button class="remove-applicant-row" type="button" aria-label="Remove applicant row" title="Remove row">×</button>
+          </div>
+        </template>
+
+        <div class="csv-import-row">
+          <label class="control-field csv-file-field">
+            <span>Optional CSV import (instead of typing; not OCR)</span>
+            <input name="applicants_csv" type="file" accept=".csv,text/csv">
+          </label>
+          <div class="csv-help">
+            <a href="{{ url_for('applicant_csv_template') }}">Download CSV template</a>
+            <small>Required headers: <code>full_name</code> and <code>passport_number</code>. Up to 50 applicants per generation.</small>
+          </div>
+        </div>
+
+        <div class="batch-submit-row">
+          <p class="microcopy">This button uses only the details typed above or imported from CSV. PDFs are page-checked and shown with visual previews before download. For scan-based extraction, use the separate OCR section below.</p>
+          <button class="button button-secondary" type="submit" onclick="return confirm('Generate PDFs using the manually typed or CSV applicant details?')">Generate PDFs from typed / CSV details</button>
+        </div>
+      </form>
+
+      {% if recent_batches %}
+        <div class="recent-batches">
+          <div class="recent-batches-heading">
+            <h3>Recent applicant batches</h3>
+            <span>Reopen previews or download a ZIP</span>
+          </div>
+          {% for batch in recent_batches %}
+            <div class="recent-batch-row">
+              <div>
+                <strong>{{ batch['template_name'] }}</strong>
+                <span>{{ batch['applicant_count'] }} PDF{% if batch['applicant_count'] != 1 %}s{% endif %} · {{ batch['created_at'] }}</span>
+              </div>
+              <div class="recent-batch-actions">
+                <a href="{{ url_for('applicant_batch_review', batch_id=batch['id']) }}">Review &amp; preview</a>
+                <a href="{{ url_for('applicant_batch_download_zip', batch_id=batch['id']) }}">Download ZIP</a>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </section>
+
+    <section class="ocr-card" id="passport-ocr">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">OCR INTAKE · PASSPORT SCAN UPLOAD ONLY</p>
+          <h2>Extract applicant name and passport number (OCR)</h2>
+          <p>This separate section reads details from uploaded passport scans. It does not use the typed fields above; OCR results open in a review step before PDF generation.</p>
+        </div>
+        <div class="section-badges">
+          <span class="intake-mode intake-ocr">PASSPORT SCAN OCR</span>
+          <span class="bulk-badge">{{ 'OCR READY' if ocr_ready else 'OCR SETUP NEEDED' }}</span>
+        </div>
+      </div>
+      <div class="ocr-privacy-note {% if not ocr_ready %}ocr-unavailable{% endif %}">
+        <strong>{{ 'Offline OCR is ready.' if ocr_ready else 'OCR is not configured.' }}</strong>
+        <span>{{ ocr_message }} The scan is processed temporarily and is not kept in app storage.</span>
+      </div>
+      <form id="passport-ocr-form" class="ocr-form" action="{{ url_for('extract_passports') }}" method="post" enctype="multipart/form-data">
+        <label class="control-field">
+          <span>Agreement template for OCR applicants</span>
+          <select name="template_id" required>
+            {% for doc in docs %}
+              <option value="{{ doc['id'] }}">{{ doc['name'] }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="control-field scan-file-field">
+          <span>Upload passport scan(s) for OCR (PDF, JPG, PNG, TIFF, BMP, WEBP, HEIC)</span>
+          <input id="passport-scan-files" name="passport_scans" type="file" accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff,.bmp,.webp,.heic,.heif,application/pdf,image/*" multiple required {% if not ocr_ready %}disabled{% endif %}>
+          <small>One passport per file; up to 20 scans, 10 MB each (25 MB combined upload limit). For PDFs, the first five pages are checked.</small>
+        </label>
+        <div class="ocr-submit-row">
+          <div class="ocr-submit-message">
+            <p>Extraction uses the passport machine-readable zone first, then visible text as a fallback. It does not guarantee perfect recognition; confirm against the actual passport.</p>
+            <p id="ocr-submit-status" class="ocr-submit-status" role="status" aria-live="polite">Choose one or more scans, then click Extract.</p>
+          </div>
+          <button id="ocr-submit-button" class="button button-secondary" type="submit" {% if not ocr_ready %}disabled{% endif %}>Run OCR &amp; review extracted details</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="bulk-card">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">OPTIONAL CROSS-DOCUMENT UPDATE</p>
+          <h2>Apply one value to all agreements</h2>
+          <p>Use this when the same field should be identical in every document. It overwrites that field for all agreements where the field exists.</p>
+        </div>
+        <span class="bulk-badge">BULK</span>
+      </div>
+      <form class="bulk-form" action="{{ url_for('bulk') }}" method="post">
+        <label class="control-field">
+          <span>Field to apply</span>
+          <select name="field" required>
+            {% for field in bulk_fields %}
+              <option value="{{ field.key }}">{{ field.label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="control-field bulk-value">
+          <span>New value</span>
+          <input name="value" type="text" placeholder="Enter the value to apply" required>
+        </label>
+        <button class="button button-secondary" type="submit" onclick="return confirm('This will overwrite the selected value in every agreement where it is available, then regenerate all PDFs. Continue?')">
+          Apply to all &amp; rebuild
+        </button>
+      </form>
+      <p class="microcopy">Each agreement belongs to a different employee/employer. Bulk apply only when you really want the same value in every included agreement.</p>
+    </section>
+
+    <section class="agreements-section">
+      <div class="section-heading agreements-heading">
+        <div>
+          <p class="eyebrow">EDIT AGREEMENTS</p>
+          <h2>Document details</h2>
+          <p>Per-document edits update every mapped occurrence in that agreement. All five PDFs are rebuilt from their original files when you save.</p>
+        </div>
+        <div class="generated-meta">
+          {% if last_generated %}
+            <span class="meta-label">Last rebuilt</span>
+            <span>{{ last_generated }}</span>
+          {% else %}
+            <span class="meta-label">PDFs will be built on first save</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <nav class="document-tabs" aria-label="Choose agreement">
+        {% for doc in docs %}
+          <button class="document-tab {% if loop.first %}active{% endif %}" type="button" data-doc-tab="{{ doc.id }}">
+            <span class="tab-name">{{ doc.name }}</span>
+            <span class="tab-caption">{{ doc['values']['employee_name'][:23] }}{% if doc['values']['employee_name']|length > 23 %}…{% endif %}</span>
+          </button>
+        {% endfor %}
+      </nav>
+
+      <form id="editor-form" class="editor-form" action="{{ url_for('save') }}" method="post" autocomplete="off">
+        {% for doc in docs %}
+          <article class="document-panel {% if loop.first %}active{% endif %}" id="panel-{{ doc.id }}" data-doc-panel="{{ doc.id }}">
+            <div class="document-card-header">
+              <div>
+                <div class="source-tag">SOURCE · {{ doc.source_filename }}</div>
+                <h3>{{ doc.name }} agreement</h3>
+                <p class="employee-summary">{{ doc['values']['employee_name'] }} <span>·</span> {{ doc['values']['employer_name'] }}</p>
+              </div>
+              <div class="pdf-actions">
+                {% if doc.generated_exists %}
+                  <a class="button button-quiet" href="{{ url_for('visual_document_preview', doc_id=doc.id) }}" target="_blank" rel="noopener">View pages ↗</a>
+                  <a class="button button-quiet" href="{{ url_for('download', doc_id=doc.id) }}">Download PDF</a>
+                {% else %}
+                  <span class="pdf-pending">Save to build PDF</span>
+                {% endif %}
+              </div>
+            </div>
+
+            {% if doc.signature_mismatch %}
+              <div class="warning-callout">
+                <strong>Source inconsistency to review:</strong>
+                Clause A names <b>{{ doc.initial.employer_name }}</b>, but the original signature block says <b>{{ doc.initial.signature_employer_name }}</b>.
+                This system keeps that text separate by default. Enable the link below if the signature employer should follow the Clause A employer.
+              </div>
+            {% endif %}
+
+            <label class="link-toggle {% if doc.signature_mismatch and not doc.sync_signature_employer %}needs-review{% endif %}">
+              <input type="checkbox" name="sync__{{ doc.id }}" {% if doc.sync_signature_employer %}checked{% endif %}>
+              <span class="toggle-check"></span>
+              <span>
+                <strong>Link employer signature to Clause A</strong>
+                <small>When enabled, changing the employer name also updates the employer name in the signature block.</small>
+              </span>
+            </label>
+
+            <div class="field-groups">
+              {% for group in field_groups %}
+                <section class="field-group">
+                  <div class="field-group-title">
+                    <span class="group-marker"></span>
+                    <h4>{{ group.group }}</h4>
+                  </div>
+                  <div class="field-grid">
+                    {% for field in group.fields %}
+                      {% set key = field.key %}
+                      {% set available = doc.fields_present[key] %}
+                      {% set current_value = doc['values'][key] %}
+                      {% if key == 'signature_employer_name' and doc.sync_signature_employer %}
+                        {% set current_value = doc['values']['employer_name'] %}
+                      {% endif %}
+                      <label class="edit-field {% if not available %}field-unavailable{% endif %}">
+                        <span class="field-label">{{ field.label }}</span>
+                        {% if available %}
+                          <input
+                            type="text"
+                            name="v__{{ doc.id }}__{{ key }}"
+                            value="{{ current_value }}"
+                            {% if field.type == 'number' %}inputmode="numeric"{% endif %}
+                            {% if key == 'signature_employer_name' and doc.sync_signature_employer %}disabled{% endif %}
+                            {% if key == 'start_date' %}placeholder="DD.MM.YYYY"{% endif %}
+                            {% if field.type == 'number' %}placeholder="e.g. 20"{% endif %}
+                          >
+                          {% if key in ['gross_salary', 'net_salary', 'meal_amount'] %}
+                            <small>Enter the amount only; the source document's currency styling is retained.</small>
+                          {% elif key == 'meal_basis' %}
+                            <small>Example: Per Month, Per Day, or for each working day.</small>
+                          {% elif key == 'signature_employer_name' and doc.sync_signature_employer %}
+                            <small>Currently linked to the Clause A employer name.</small>
+                          {% endif %}
+                        {% else %}
+                          <input type="text" value="Not stated in this source PDF" disabled>
+                          <small>No source location is mapped for this field in this agreement.</small>
+                        {% endif %}
+                      </label>
+                    {% endfor %}
+                  </div>
+                </section>
+              {% endfor %}
+            </div>
+          </article>
+        {% endfor %}
+
+        <div class="save-bar">
+          <div class="save-explainer">
+            <span class="save-icon">↻</span>
+            <span><strong>Save &amp; rebuild all five</strong><small>Repeated values in each agreement update together.</small></span>
+          </div>
+          <button class="button button-primary" type="submit">Save changes &amp; regenerate PDFs</button>
+        </div>
+      </form>
+
+      <div class="download-row">
+        <a class="button button-dark" href="{{ url_for('download_all') }}">Download all updated PDFs (.zip)</a>
+        <p>Generated files are in <code>generated/</code>. Source PDFs remain in <code>source_pdfs/</code>.</p>
+      </div>
+    </section>
+
+    <details class="how-it-works">
+      <summary>How updates are applied</summary>
+      <div class="details-body">
+        <ul>
+          <li>Each field is mapped to the original PDF locations; employee and representative names, employer details, and selected terms update wherever they repeat.</li>
+          <li>Each save starts from the untouched source PDFs, so repeated edits do not stack over old output.</li>
+          <li>Cross-document bulk apply is optional. Use it only when one identical value should replace the document-specific values in multiple agreements.</li>
+          <li>Some source values are in bold black text rather than yellow highlight. Only the AFGO source has actual yellow highlights; those are retained around the corresponding edited values.</li>
+          <li>ASIA and DNB contain an employer-name mismatch in the original signature block. The editor flags it and leaves it unlinked until you choose to synchronize it.</li>
+        </ul>
+      </div>
+    </details>
+
+    <footer class="page-footer">
+      <div class="footer-left">Agreement Updater <span>·</span> Local workspace</div>
+      <form action="{{ url_for('reset') }}" method="post" onsubmit="return confirm('Reset every editable value to the five original PDFs and regenerate the outputs? This cannot be undone.')">
+        <button class="text-button" type="submit">Reset to source values</button>
+      </form>
+    </footer>
+  </main>
+
+  <script>
+    (() => {
+      const tabs = [...document.querySelectorAll('[data-doc-tab]')];
+      const panels = [...document.querySelectorAll('[data-doc-panel]')];
+      function activate(id) {
+        tabs.forEach(tab => tab.classList.toggle('active', tab.dataset.docTab === id));
+        panels.forEach(panel => panel.classList.toggle('active', panel.dataset.docPanel === id));
+        try { sessionStorage.setItem('agreement-updater-active-tab', id); } catch (_) {}
+      }
+      tabs.forEach(tab => tab.addEventListener('click', () => activate(tab.dataset.docTab)));
+      try {
+        const remembered = sessionStorage.getItem('agreement-updater-active-tab');
+        if (remembered && panels.some(panel => panel.dataset.docPanel === remembered)) activate(remembered);
+      } catch (_) {}
+      const editor = document.getElementById('editor-form');
+      editor?.addEventListener('submit', () => {
+        const button = editor.querySelector('.button-primary');
+        if (button) { button.disabled = true; button.textContent = 'Rebuilding PDFs…'; }
+      });
+
+      const ocrForm = document.getElementById('passport-ocr-form');
+      const ocrFiles = document.getElementById('passport-scan-files');
+      const ocrStatus = document.getElementById('ocr-submit-status');
+      const ocrButton = document.getElementById('ocr-submit-button');
+      const setOcrStatus = (message, kind = '') => {
+        if (!ocrStatus) return;
+        ocrStatus.textContent = message;
+        ocrStatus.classList.toggle('is-error', kind === 'error');
+        ocrStatus.classList.toggle('is-loading', kind === 'loading');
+      };
+      ocrFiles?.addEventListener('change', () => {
+        const files = [...(ocrFiles.files || [])];
+        if (!files.length) {
+          setOcrStatus('Choose one or more scans, then click Extract.');
+          return;
+        }
+        const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+        const tooLarge = files.find(file => file.size > 10 * 1024 * 1024);
+        if (files.length > 20 || tooLarge || totalBytes > 25 * 1024 * 1024) {
+          setOcrStatus('Upload up to 20 scans, 10 MB each, and 25 MB total. Remove large files and try again.', 'error');
+          return;
+        }
+        setOcrStatus(`${files.length} scan${files.length === 1 ? '' : 's'} selected. Click Extract to start local OCR.`);
+      });
+      ocrFiles?.addEventListener('invalid', () => {
+        setOcrStatus('No scan selected. Choose a PDF, image, or HEIC file first.', 'error');
+      });
+      ocrForm?.addEventListener('submit', event => {
+        if (!ocrFiles?.files?.length) {
+          event.preventDefault();
+          setOcrStatus('No scan selected. Choose a PDF, image, or HEIC file first.', 'error');
+          ocrFiles?.focus();
+          return;
+        }
+        const files = [...ocrFiles.files];
+        const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+        if (files.length > 20 || files.some(file => file.size > 10 * 1024 * 1024) || totalBytes > 25 * 1024 * 1024) {
+          event.preventDefault();
+          setOcrStatus('Upload up to 20 scans, 10 MB each, and 25 MB total. Remove large files and try again.', 'error');
+          return;
+        }
+        if (ocrButton) {
+          ocrButton.disabled = true;
+          ocrButton.textContent = 'Reading scans locally…';
+        }
+        setOcrStatus('Uploading and reading the scans locally. This can take a few seconds; keep this page open.', 'loading');
+      });
+
+      const applicantRows = document.getElementById('applicant-rows');
+      const applicantRowTemplate = document.getElementById('applicant-row-template');
+      document.getElementById('add-applicant-row')?.addEventListener('click', () => {
+        if (applicantRows && applicantRowTemplate) applicantRows.append(applicantRowTemplate.content.cloneNode(true));
+      });
+      applicantRows?.addEventListener('click', event => {
+        const removeButton = event.target.closest('.remove-applicant-row');
+        if (!removeButton) return;
+        const rowsNow = applicantRows.querySelectorAll('.applicant-entry');
+        if (rowsNow.length > 1) removeButton.closest('.applicant-entry')?.remove();
+        else applicantRows.querySelectorAll('input').forEach(input => { input.value = ''; });
+      });
+      document.getElementById('applicant-batch-form')?.addEventListener('submit', () => {
+        const button = document.querySelector('#applicant-batch-form button[type="submit"]');
+        if (button) { button.disabled = true; button.textContent = 'Generating PDFs…'; }
+      });
+    })();
+  </script>
+</body>
+</html>

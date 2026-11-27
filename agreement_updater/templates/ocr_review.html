@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Review passport OCR · Employment Agreement Updater</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand-mark" aria-hidden="true">OCR</div>
+    <div>
+      <p class="eyebrow">LOCAL PASSPORT EXTRACTION</p>
+      <h1>Review extracted applicant details</h1>
+      <p class="subhead">OCR suggestions are editable. Confirm every field against the passport before generating any agreement.</p>
+    </div>
+    <div class="header-status">
+      <span class="status-dot"></span>
+      <span>{{ candidates|length }} scan{% if candidates|length != 1 %}s{% endif %} processed</span>
+    </div>
+  </header>
+
+  <main class="page-shell ocr-review-shell">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="flash-stack" aria-live="polite">
+          {% for category, message in messages %}
+            <div class="flash {{ category }}">
+              <span class="flash-icon">{% if category == 'success' %}✓{% else %}!{% endif %}</span>
+              <span>{{ message }}</span>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    <section class="ocr-review-warning">
+      <strong>Check every OCR result.</strong>
+      <p>The extraction prioritizes the passport MRZ and validates check digits when available. That improves reliability but cannot guarantee a perfect read. Correct spelling, name order, and every passport character before proceeding. Names from the MRZ are shown surname first.</p>
+      <small>Scans were processed temporarily and are not kept in app storage. Template: <b>{{ template_name }}</b>.</small>
+    </section>
+
+    <form id="ocr-review-form" class="ocr-review-form" action="{{ url_for('generate_applicant_batch') }}" method="post" enctype="multipart/form-data">
+      <input type="hidden" name="template_id" value="{{ template_id }}">
+      <div class="ocr-review-heading">
+        <div>
+          <h2>Applicant candidates</h2>
+          <p>Edit the suggested values, remove any scan that should not be included, or add a CSV list below.</p>
+        </div>
+        <a class="button button-quiet" href="{{ url_for('index') }}#passport-ocr">Back to editor</a>
+      </div>
+
+      <div id="ocr-candidates" class="ocr-candidates">
+        {% for candidate in candidates %}
+          <article class="ocr-candidate-card">
+            <div class="ocr-candidate-heading">
+              <div>
+                <span class="ocr-scan-label">SCAN {{ "%02d"|format(candidate['scan_index']) }} · {{ candidate['scan_name'] }}</span>
+                <p class="ocr-candidate-status {{ candidate['status_kind'] }}">{{ candidate['status'] }}</p>
+              </div>
+              <button class="remove-ocr-candidate" type="button" aria-label="Remove this scan">Remove</button>
+            </div>
+            <div class="ocr-candidate-fields">
+              <label class="control-field">
+                <span>Applicant full name <small>(surname first from MRZ)</small></span>
+                <input name="manual_full_name" type="text" value="{{ candidate['employee_name'] }}" maxlength="160" required autocomplete="off">
+              </label>
+              <label class="control-field">
+                <span>Passport number</span>
+                <input name="manual_passport_number" type="text" value="{{ candidate['passport_number'] }}" maxlength="40" required autocomplete="off">
+              </label>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+
+      <section class="ocr-csv-optional">
+        <label class="control-field csv-file-field">
+          <span>Optional: add more applicants from CSV</span>
+          <input name="applicants_csv" type="file" accept=".csv,text/csv">
+        </label>
+        <a href="{{ url_for('applicant_csv_template') }}">Download CSV template</a>
+      </section>
+
+      <div class="ocr-review-submit">
+        <p>Continue to generate one PDF per remaining applicant using the selected template. The next page provides visual page previews, individual PDF downloads, and a ZIP.</p>
+        <button class="button button-primary" type="submit" onclick="return confirm('Generate agreements using the applicant details currently shown? Verify these values against the passports first.')">Confirm details &amp; generate PDFs</button>
+      </div>
+    </form>
+  </main>
+
+  <script>
+    (() => {
+      const container = document.getElementById('ocr-candidates');
+      container?.addEventListener('click', event => {
+        const button = event.target.closest('.remove-ocr-candidate');
+        if (!button) return;
+        const cards = container.querySelectorAll('.ocr-candidate-card');
+        if (cards.length > 1) button.closest('.ocr-candidate-card')?.remove();
+        else button.closest('.ocr-candidate-card')?.remove();
+      });
+      document.getElementById('ocr-review-form')?.addEventListener('submit', () => {
+        const button = document.querySelector('#ocr-review-form button[type="submit"]');
+        if (button) { button.disabled = true; button.textContent = 'Generating PDFs…'; }
+      });
+    })();
+  </script>
+</body>
+</html>
